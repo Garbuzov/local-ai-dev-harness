@@ -1,0 +1,104 @@
+# Home-level patch: applied to EVERY profile (desktop, web, headless...) AFTER its
+# own cordis.patch.yml. Only what must apply everywhere goes here.
+#
+# Safety rule: a line in this file can break every profile at once.
+# Always test new experiments in a profile first, then move them here.
+#
+# Line addressing is by `id` from the composed tree. To view the whole tree:
+#   dsh --profile web --dump-config
+# The patch REPLACES the entire `config` of a line rather than merging with it: specify all keys
+# that the line must have, otherwise the rest revert to default values.
+
+# ── Default preset for new sessions ──────────────────────────────────────────
+# `frontend` is the light one: only context7 from MCP. The full set (browser + memory)
+# lives in the `frontend-full` preset and is taken for a specific task.
+# Measured difference: ~1 300 tokens of overhead versus ~15 600 in every request.
+- id: agent-presets
+  config:
+    default: frontend
+
+# ── Reasoning tokens: turn off wherever it works at all ──────────────────────
+# IMPORTANT and non-obvious: `reasoningEffort` is NOT a config field of the
+# `agent-default-model` line — it lives only in the settings layer. Therefore the
+# line `reasoningEffort: off` that the application wrote into the desktop profile patch
+# does not set the effort: in the session projection you see `lastUsed.reasoningEffort: high`
+# with the route's standard value `high`. Effort can be set only through the UI
+# (model and effort selection), and this is the most expensive setting of all: model output is
+# half the bill, and reasoning tokens are part of the output.
+#
+# Here effort is set at the `llm-deepseek` route level, that is, in CLI profiles
+# (headless, web, sdk). It does not affect the desktop application: it goes through the
+# `deepseek-account` route, which the application host itself registers.
+- id: llm-deepseek
+  config:
+    reasoningEffort: off
+
+# ── Spilling large tool outputs out of context ───────────────────────────────
+# `maxInlineBytes` is the ceiling on how much tool-result text
+# the MODEL SEES (in UTF-8 bytes). What does not fit is replaced by a head/tail preview
+# plus a link to the file; the full text is no longer sent to the model.
+# The standard value of 50 000 bytes ≈ 12 500 tokens per one result, and it stays
+# in the history until compaction. In the measured session two PowerShell outputs gave 41 797 and
+# 28 353 characters — both passed under the standard ceiling and settled in the context.
+# Caveat: the policy deliberately does not touch `read` results — otherwise it would create a
+# loop of "read → spill → read again".
+- id: spill-policy
+  config:
+    maxInlineBytes: 20000
+
+# ── Full-text search over session history ────────────────────────────────────
+# By default (`openAt: never`) only titles and workspace names are searched.
+# `first-search` opens the SQLite index lazily, on the first search, and keeps it
+# in memory — at application start this costs nothing.
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: first-search
+
+# ── Web search: one request instead of four ──────────────────────────────────
+# Every web_search call is a SEPARATE full model request on the
+# provider side, outside the dialogue context. By default `maxUses: 5`, and tool-web
+# adds another `searchMaxQueries: 4` — that is up to 20 native searches per one
+# tool call. We limit it to one: the measurement of this session showed 4 such
+# requests, and none of them needed that many.
+- id: web-search-deepseek
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    maxUses: 1
+
+# ── Local model as a provider ────────────────────────────────────────────────
+# `dsh-llm-pi-ai` is mounted idle: there are no routes until they are declared.
+# This block declares the `local` route leading to Ollama over the OpenAI-compatible
+# protocol. Ollama does not check the key, but the adapter needs one to be present: instead of
+# a missing credential we use the Authorization header.
+#
+# Verified on this machine (AMD RX 9070 XT, ROCm):
+#   llama3.1:8b       — capable of REAL tool calls (finish_reason: tool_calls),
+#                       the call was formed in 12.8 s. Suitable for a subagent.
+#   qwen2.5-coder:14b — returns the tool call as TEXT, not through tool_calls.
+#                       Not suitable for an agent with tools, kept for
+#                       text tasks.
+#
+# Requires a running Ollama. The model directory is set in the Ollama application —
+# a server started manually via `ollama serve` will not see these models.
+- id: llm-pi-ai
+  config:
+    providers:
+      local:
+        api: openai-completions
+        baseURL: http://127.0.0.1:11434/v1
+        displayName: Ollama (local)
+        headers:
+          Authorization: 'Bearer ollama'
+        defaultContextWindow: 16384
+        defaultMaxTokens: 4096
+        defaultInput: [text]
+        models:
+          - id: llama3.1:8b
+            name: llama3.1 8B (tools)
+            contextWindow: 16384
+            maxTokens: 4096
+          - id: qwen2.5-coder:14b
+            name: qwen2.5-coder 14B (no tools)
+            contextWindow: 16384
+            maxTokens: 4096

@@ -1,0 +1,8 @@
+# Preset metadata. The same format as the others: name, description, order.
+name: Frontend — full
+description: >-
+  Everything enabled: context7, chrome-devtools, playwright and memory, plus a free
+  subagent on a local model. The overhead per request is about 15 500
+  tokens instead of 1 300 for the light preset. Take it for tasks about a live interface:
+  debugging in the browser, performance traces, e2e.
+order: 6

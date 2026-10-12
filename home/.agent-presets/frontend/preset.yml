@@ -1,0 +1,12 @@
+# Preset metadata: the name and description are shown in the preset picker in the UI.
+# `order` — position in the list; shipped presets occupy 1..4.
+#
+# A preset is a composition (agent.cordis.yml), that is, A SET OF RIGHTS AND CAPABILITIES.
+# Treat your preset as code with full access to the system: that is what it is.
+name: Frontend — light
+description: >-
+  Default. A full coding agent, context7 for up-to-date library
+  documentation, and a free subagent on a local Ollama model. Browser MCP
+  and memory are disabled: their descriptions cost ~12 000 tokens in every request.
+  For work with a live interface, take the "Frontend — full" preset.
+order: 5

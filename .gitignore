@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Logs and local reports
+*.log
+
+# Editor and translation leftovers
+*.orig
+*.bak
+
+# Never commit personal harness files or secrets.
+# home/AGENTS.md is deliberately out of scope: global instructions are personal per machine.
+home/AGENTS.md
+**/.credentials.yaml
+**/.anonymous-user-id
+
+# Local environment
+.env
+.env.*
+!.env.example

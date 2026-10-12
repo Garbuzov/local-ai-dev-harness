@@ -1,0 +1,133 @@
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PRESET "frontend" — LIGHT, the default for new sessions.
+# The lines above (a copy of the shipped `standard` preset) are unchanged to the character.
+#
+# Why the split: tool descriptions of every MCP server go into EVERY
+# model request. Measurement on this machine:
+#   chrome-devtools  30 tools  ~6 423 tokens per request
+#   playwright       25 tools  ~5 072
+#   memory            9 tools  ~2 766
+#   context7          2 tools  ~1 307
+#   all together               ~15 567 tokens
+# For comparison: all 27 built-in DSH tools cost ~5 619 tokens.
+# That is why only context7 is enabled by default — the cheapest and the most useful
+# when writing code. Browser servers and memory live in the `frontend-full` preset
+# and are connected when the task is really about a live interface.
+#
+# To check the composition after an edit:
+#   node ~/.dsh/tools/measure-mcp-tools.mjs
+#   node ~/.dsh/tools/validate-preset.mjs
+#
+# Tool name in the model: mcp__<serverName>__<tool>.
+# `serverName` — only [A-Za-z0-9_-], up to 32 characters; namespaces do not overlap.
+# `failOnStartupError` defaults to false: an unavailable server does not prevent startup.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── ENABLED: context7 — up-to-date library documentation ─────────────────────
+# Instead of the model's knowledge from the training set — current React, Next, Vite docs.
+# Without a key it works with a rate limit; the CONTEXT7_API_KEY key raises
+# the limit and is passed the same way as the GitHub token below.
+- id: mcp-context7
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: context7
+    transport: stdio
+    command: npx
+    args: ['-y', '@upstash/context7-mcp']
+
+# ── disabled: enable here or take the frontend-full preset ───────────────────
+
+# Agent-controlled browser: performance traces, network, console,
+# screenshots. Requires Chrome. Flags: --headless, --isolated, --slim.
+- id: mcp-chrome-devtools
+  name: '@deepseek-ai/dsh-mcp-client'
+  disabled: true
+  config:
+    serverName: chrome-devtools
+    transport: stdio
+    command: npx
+    args: ['-y', 'chrome-devtools-mcp@latest', '--no-usage-statistics']
+    toolCallTimeoutMs: 120000
+
+# Browser automation for e2e. Playwright browsers are already downloaded.
+- id: mcp-playwright
+  name: '@deepseek-ai/dsh-mcp-client'
+  disabled: true
+  config:
+    serverName: playwright
+    transport: stdio
+    command: npx
+    args: ['-y', '@playwright/mcp@latest']
+    toolCallTimeoutMs: 120000
+
+# Knowledge graph across sessions in a local file. 9 tools — 2 766 tokens
+# per every request: keeping it always on is expensive, enable it per task.
+- id: mcp-memory
+  name: '@deepseek-ai/dsh-mcp-client'
+  disabled: true
+  config:
+    serverName: memory
+    transport: stdio
+    command: npx
+    args: ['-y', '@modelcontextprotocol/server-memory']
+    cwd: !!js process.getBuiltinModule('node:path').join(process.env.USERPROFILE, '.dsh')
+
+# GitHub: a local server in Docker using a personal token. Disabled because it needs
+# both GITHUB_MCP_TOKEN and a running Docker. The enabling procedure is described in the README.
+- id: mcp-github
+  name: '@deepseek-ai/dsh-mcp-client'
+  disabled: true
+  config:
+    serverName: github
+    transport: stdio
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - -e
+      - GITHUB_PERSONAL_ACCESS_TOKEN
+      - -e
+      - GITHUB_TOOLSETS
+      - ghcr.io/github/github-mcp-server
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: !!js process.env.GITHUB_MCP_TOKEN
+      GITHUB_TOOLSETS: repos,issues,pull_requests
+
+# ═════════════════════════════════════════════════════════════════════════════
+# LOCAL SUBAGENT — the second delegation tool, working for free.
+#
+# The measurement of this session showed why this is the main saving lever: twelve
+# subagents on the paid model produced 226 455 output tokens — almost as much
+# as the entire parent session (238 152).
+#
+# The `local` route is declared in ~/.dsh/cordis.patch.yml and points to Ollama.
+# Measurement and check on this machine (AMD RX 9070 XT, ROCm, model directory set in Ollama):
+#   llama3.1:8b       — REAL tool calls: finish_reason: tool_calls,
+#                       the call was formed in 12.8 s. Only it is suitable for the subagent.
+#   qwen2.5-coder:14b — 8.7 tokens/s, but returns the tool call as TEXT
+#                       (finish_reason: stop), not through tool_calls. Not suitable.
+#   qwen2.5-coder:32b — the same thing as text and three times slower.
+# Conclusion: the local subagent runs on llama3.1:8b.
+# NOTE: in code it is weaker than the paid model. Its job is mechanical reconnaissance,
+# reading and extracting lists, not decisions or generating complex code.
+#
+# IMPORTANT: requires a running Ollama (`ollama app.exe` in the tray). If the server is not
+# up, the subagent_local call will fail — then use the regular `subagent`.
+# Check: `ollama list` must respond.
+#
+# Why a separate tool and not a setting: `subagent_fork` cannot choose a model
+# by design (it inherits the parent route for the cache), and dynamic
+# model selection requires a settings section that does not live
+# in settings.yaml on the desktop profile. A separate tool line is the most predictable way.
+- id: tool-subagent-local
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent_local
+    backgroundMode: continuable
+    agentOptions:
+      provider: local
+      model: llama3.1:8b
+      maxTokens: 4096
